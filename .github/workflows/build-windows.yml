@@ -1,0 +1,98 @@
+name: Build Prisca V25 for Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract V25 source
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem -Filter "Prisca_Smart_Package_Builder_V25_One_Click_Windows.zip" | Select-Object -First 1
+          if (-not $zip) { throw "V25 ZIP not found" }
+          Expand-Archive -Path $zip.FullName -DestinationPath "$env:GITHUB_WORKSPACE\source" -Force
+          $root = Get-ChildItem "$env:GITHUB_WORKSPACE\source" -Directory | Select-Object -First 1
+          if (-not $root) { throw "Could not find extracted V25 folder" }
+          "V25_ROOT=$($root.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r "$env:V25_ROOT\requirements.txt"
+          python -m pip install pyinstaller
+
+      - name: Create one-click launcher
+        shell: pwsh
+        run: |
+          @'
+          import os
+          import threading
+          import time
+          import webbrowser
+          import app
+
+          PORT = int(os.environ.get("PORT", "8765"))
+
+          def main():
+              app.init_db()
+              app.seed_excel()
+              app.seed_rainwood()
+              app.normalize_price_categories()
+              app.seed_cabs()
+              server = app.ThreadingHTTPServer(("127.0.0.1", PORT), app.H)
+              def open_browser():
+                  time.sleep(1.2)
+                  webbrowser.open(f"http://127.0.0.1:{PORT}")
+              threading.Thread(target=open_browser, daemon=True).start()
+              print(f"Prisca AI V25 running at http://127.0.0.1:{PORT}")
+              server.serve_forever()
+
+          if __name__ == "__main__":
+              main()
+          '@ | Set-Content -Encoding UTF8 "$env:V25_ROOT\start_prisca.py"
+
+      - name: Build Windows executable
+        shell: pwsh
+        run: |
+          Set-Location "$env:V25_ROOT"
+          python -m PyInstaller --noconfirm --clean --onedir --name START_PRISCA --add-data "static;static" --add-data "data;data" --add-data "uploads;uploads" --add-data "logo.png;." --hidden-import app start_prisca.py
+
+      - name: Add launcher README
+        shell: pwsh
+        run: |
+          @'
+          PRISCA AI V25 - WINDOWS
+          
+          Double-click START_PRISCA.exe.
+          The application starts locally and opens the dashboard automatically.
+          Keep the application window open while using Prisca.
+          Local URL: http://127.0.0.1:8765
+          '@ | Set-Content -Encoding UTF8 "$env:V25_ROOT\dist\START_PRISCA\README.txt"
+
+      - name: Package artifact
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "$env:V25_ROOT\dist\START_PRISCA\*" -DestinationPath "$env:GITHUB_WORKSPACE\Prisca_V25_Windows_One_Click.zip" -Force
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Prisca-V25-Windows-One-Click
+          path: Prisca_V25_Windows_One_Click.zip
+          if-no-files-found: error
