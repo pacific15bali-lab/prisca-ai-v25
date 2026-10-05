@@ -1,0 +1,67 @@
+name: Build Prisca V27 for Windows
+
+on:
+  push:
+    paths:
+      - 'Prisca_Smart_Package_Builder_V27_Admin_Integrations_CPanel.zip'
+      - '.github/workflows/build-v27-windows.yml'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract V27 source
+        shell: pwsh
+        run: |
+          $zip = "Prisca_Smart_Package_Builder_V27_Admin_Integrations_CPanel.zip"
+          if (!(Test-Path $zip)) { throw "V27 ZIP not found: $zip" }
+          Expand-Archive -Path $zip -DestinationPath extracted -Force
+          $root = Get-ChildItem extracted -Directory | Select-Object -First 1
+          if ($null -eq $root) { throw "Could not find extracted V27 source directory." }
+          "V27_ROOT=$($root.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r "$env:V27_ROOT\requirements.txt"
+          python -m pip install pyinstaller
+
+      - name: Build START_PRISCA
+        shell: pwsh
+        run: |
+          Set-Location $env:V27_ROOT
+          python -m PyInstaller --noconfirm --clean --onedir --name START_PRISCA --add-data "static;static" --add-data "data;data" --add-data "uploads;uploads" --add-data "logo.png;." --hidden-import app start_prisca.py
+
+      - name: Package artifact
+        shell: pwsh
+        run: |
+          $out = "$env:V27_ROOT\dist\START_PRISCA"
+          if (!(Test-Path "$out\START_PRISCA.exe")) { throw "START_PRISCA.exe was not created." }
+          New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\release" | Out-Null
+          Copy-Item "$out\*" "$env:GITHUB_WORKSPACE\release" -Recurse -Force
+          @"
+          Prisca AI V27 - Windows One Click
+
+          Run START_PRISCA.exe to launch Prisca AI locally.
+
+          IMPORTANT:
+          Preserve the data folder when updating an existing installation because it contains saved settings and local database state.
+          "@ | Out-File "$env:GITHUB_WORKSPACE\release\README_V27.txt" -Encoding utf8
+          Compress-Archive -Path "$env:GITHUB_WORKSPACE\release\*" -DestinationPath "$env:GITHUB_WORKSPACE\Prisca_V27_Windows_One_Click.zip" -Force
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Prisca-V27-Windows-One-Click
+          path: Prisca_V27_Windows_One_Click.zip
+          if-no-files-found: error
