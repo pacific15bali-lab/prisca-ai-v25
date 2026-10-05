@@ -1,6 +1,10 @@
 name: Build Prisca V26 for Windows
 
 on:
+  push:
+    paths:
+      - "Prisca_Smart_Package_Builder_V26_Admin_Integrations_CPanel.zip"
+      - ".github/workflows/build-v26-windows.yml"
   workflow_dispatch:
 
 permissions:
