@@ -1,0 +1,54 @@
+name: Build Prisca V26 for Windows
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Extract V26 source
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem -Filter "Prisca_Smart_Package_Builder_V26_Admin_Integrations_CPanel.zip" | Select-Object -First 1
+          if (-not $zip) { throw "V26 ZIP not found in repository" }
+          Expand-Archive -Path $zip.FullName -DestinationPath "$env:GITHUB_WORKSPACE\source" -Force
+          $root = Get-ChildItem "$env:GITHUB_WORKSPACE\source" -Directory | Select-Object -First 1
+          if (-not $root) { throw "Could not find extracted V26 folder" }
+          "V26_ROOT=$($root.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r "$env:V26_ROOT\requirements.txt"
+          python -m pip install pyinstaller
+      - name: Build Windows executable
+        shell: pwsh
+        run: |
+          Set-Location "$env:V26_ROOT"
+          python -m PyInstaller --noconfirm --clean --onedir --name START_PRISCA --add-data "static;static" --add-data "data;data" --add-data "uploads;uploads" --add-data "logo.png;." --hidden-import app --hidden-import cpanel_deployer start_prisca.py
+          @'
+          PRISCA AI V26 - WINDOWS
+
+          Double-click START_PRISCA.exe.
+          The dashboard opens automatically at http://127.0.0.1:8765.
+          Settings & Integrations is Admin-only.
+          '@ | Set-Content -Encoding UTF8 "$env:V26_ROOT\dist\START_PRISCA\README.txt"
+      - name: Package artifact
+        shell: pwsh
+        run: Compress-Archive -Path "$env:V26_ROOT\dist\START_PRISCA\*" -DestinationPath "$env:GITHUB_WORKSPACE\Prisca_V26_Windows_One_Click.zip" -Force
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Prisca-V26-Windows-One-Click
+          path: Prisca_V26_Windows_One_Click.zip
+          if-no-files-found: error
