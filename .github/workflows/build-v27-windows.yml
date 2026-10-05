@@ -5,6 +5,7 @@ on:
     paths:
       - 'Prisca_Smart_Package_Builder_V27_Admin_Integrations_CPanel.zip'
       - '.github/workflows/build-v27-windows.yml'
+      - 'start_prisca.py'
   workflow_dispatch:
 
 jobs:
@@ -23,6 +24,12 @@ jobs:
           $root = Get-ChildItem extracted -Directory | Select-Object -First 1
           if ($null -eq $root) { throw "Could not find extracted V27 source directory." }
           "V27_ROOT=$($root.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+
+      - name: Apply V27 cPanel TLS compatibility fix
+        shell: pwsh
+        run: |
+          if (!(Test-Path "start_prisca.py")) { throw "Patched start_prisca.py not found in repository." }
+          Copy-Item "start_prisca.py" "$env:V27_ROOT\start_prisca.py" -Force
 
       - name: Set up Python
         uses: actions/setup-python@v5
